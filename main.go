@@ -4,9 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/fatih/color"
 	"github.com/markusmobius/go-dateparser"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -86,8 +86,7 @@ func run() error {
 				if !currentDay.IsZero() {
 					fmt.Println()
 				}
-				fmt.Printf("%s\n", localTime.Format(DATE_FORMAT))
-				fmt.Println(strings.Repeat("-", 48))
+				fmt.Printf("%s\n", color.YellowString(localTime.Format(DATE_FORMAT)))
 				currentDay = localTime
 				currentRepo = ""
 			}
@@ -97,7 +96,7 @@ func run() error {
 				if currentRepo != "" {
 					fmt.Println()
 				}
-				fmt.Printf("%s\n", event.Repo.Name)
+				fmt.Printf("%s\n", color.HiWhiteString(event.Repo.Name))
 				currentRepo = event.Repo.Name
 			}
 
