@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cli/go-gh/v2/pkg/api"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -88,7 +89,8 @@ type Release struct {
 	Tag_Name string
 }
 
-const TIME_FORMAT = "Jan _2 15:04"
+const TIME_FORMAT = "15:04"
+const DATE_FORMAT = "Monday, January 2"
 
 func main() {
 	client, err := api.DefaultRESTClient()
@@ -109,13 +111,37 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var currentDay time.Time
+	var currentRepo string
 	for _, event := range eventsResponse {
 		t, err := time.Parse(time.RFC3339, event.Created_At)
 		if err != nil {
 			log.Fatal(err)
 		}
-		
-		fmt.Printf("%s %-32s ", t.In(time.Local).Format(TIME_FORMAT), event.Repo.Name)
+
+		localTime := t.In(time.Local)
+
+		// if this is a new day, print the date header
+		if currentDay.IsZero() || localTime.YearDay() != currentDay.YearDay() {
+			if !currentDay.IsZero() {
+				fmt.Println()
+			}
+			fmt.Printf("%s\n", localTime.Format(DATE_FORMAT))
+			fmt.Println(strings.Repeat("-", 48))
+			currentDay = localTime
+			currentRepo = ""
+		}
+
+		// if this is a new repository, print the repo header
+		if currentRepo != event.Repo.Name {
+			if currentRepo != "" {
+				fmt.Println()
+			}
+			fmt.Printf("%s\n", event.Repo.Name)
+			currentRepo = event.Repo.Name
+		}
+
+		fmt.Printf("  %s  ", localTime.Format(TIME_FORMAT))
 
 		switch event.Type {
 		case "PushEvent":
@@ -148,7 +174,7 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			
+
 			fmt.Printf("forked repository (creating %s)\n", payload.Forkee.Full_Name)
 		case "IssuesEvent":
 			payload := new(IssuePayload)
