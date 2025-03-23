@@ -15,11 +15,13 @@ type Issue struct {
 	Number       int
 	Title        string
 	Pull_Request *PullRequestURLs
+	Html_Url      string
 }
 
 type PullRequest struct {
-	Number int
-	Title  string
+	Number   int
+	Title    string
+	Html_Url string
 }
 
 type Comment struct {
@@ -52,6 +54,14 @@ type Event struct {
 
 type Formatter interface {
 	Format() string
+}
+
+func formatLink(text string, url string) string {
+	return fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", url, text)
+}
+
+func formatIssueOrPRLink(title string, number int, url string) string {
+	return formatLink(fmt.Sprintf("\"%s\" (#%d)", title, number), url)
 }
 
 // Event payload types
@@ -98,7 +108,9 @@ type IssuePayload struct {
 }
 
 func (p *IssuePayload) Format() string {
-	return fmt.Sprintf("%s issue \"%s\" (#%d)", p.Action, p.Issue.Title, p.Issue.Number)
+	return fmt.Sprintf("%s issue %s", 
+		p.Action,
+		formatIssueOrPRLink(p.Issue.Title, p.Issue.Number, p.Issue.Html_Url))
 }
 
 type IssueCommentPayload struct {
@@ -112,7 +124,9 @@ func (p *IssueCommentPayload) Format() string {
 		// this "issue" is actually a PR
 		kind = "PR"
 	}
-	return fmt.Sprintf("commented on %s \"%s\" (#%d)", kind, p.Issue.Title, p.Issue.Number)
+	return fmt.Sprintf("commented on %s %s",
+		kind,
+		formatIssueOrPRLink(p.Issue.Title, p.Issue.Number, p.Issue.Html_Url))
 }
 
 type PullRequestPayload struct {
@@ -121,7 +135,9 @@ type PullRequestPayload struct {
 }
 
 func (p *PullRequestPayload) Format() string {
-	return fmt.Sprintf("%s PR \"%s\" (#%d)", p.Action, p.Pull_Request.Title, p.Pull_Request.Number)
+	return fmt.Sprintf("%s PR %s",
+		p.Action,
+		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url))
 }
 
 type PullRequestReviewPayload struct {
@@ -131,7 +147,9 @@ type PullRequestReviewPayload struct {
 }
 
 func (p *PullRequestReviewPayload) Format() string {
-	return fmt.Sprintf("reviewed PR \"%s\" (#%d) (%s)", p.Pull_Request.Title, p.Pull_Request.Number, p.Review.State)
+	return fmt.Sprintf("reviewed PR %s (%s)",
+		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url),
+		p.Review.State)
 }
 
 type PullRequestReviewCommentPayload struct {
@@ -140,7 +158,8 @@ type PullRequestReviewCommentPayload struct {
 }
 
 func (p *PullRequestReviewCommentPayload) Format() string {
-	return fmt.Sprintf("left review comment on PR \"%s\" (#%d)", p.Pull_Request.Title, p.Pull_Request.Number)
+	return fmt.Sprintf("left review comment on PR %s",
+		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url))
 }
 
 type ReleasePayload struct {
