@@ -15,13 +15,17 @@ type Issue struct {
 	Number       int
 	Title        string
 	Pull_Request *PullRequestURLs
-	Html_Url      string
+	Html_Url     string
+	State        string
+	State_Reason string
 }
 
 type PullRequest struct {
 	Number   int
 	Title    string
 	Html_Url string
+	State    string
+	Merged   bool
 }
 
 type Comment struct {
@@ -54,6 +58,18 @@ type Event struct {
 
 type Formatter interface {
 	Format() string
+}
+
+const (
+	COLOR_RESET  = "\033[0m"
+	COLOR_GREEN  = "\033[32m"
+	COLOR_PURPLE = "\033[35m"
+	COLOR_GRAY   = "\033[90m"
+	COLOR_RED    = "\033[31m"
+)
+
+func colorize(text string, color string) string {
+	return color + text + COLOR_RESET
 }
 
 func formatLink(text string, url string) string {
@@ -108,9 +124,31 @@ type IssuePayload struct {
 }
 
 func (p *IssuePayload) Format() string {
-	return fmt.Sprintf("%s issue %s", 
-		p.Action,
-		formatIssueOrPRLink(p.Issue.Title, p.Issue.Number, p.Issue.Html_Url))
+	var action string
+	switch p.Action {
+	case "opened":
+		action = colorize("created", COLOR_GREEN)
+	case "closed":
+		if p.Issue.State == "closed" {
+			if p.Issue.State_Reason == "completed" {
+				action = colorize("closed", COLOR_PURPLE)
+			} else if p.Issue.State_Reason == "not_planned" {
+				action = colorize("closed", COLOR_GRAY)
+			}
+		}
+	default:
+		action = p.Action
+	}
+
+	status := ""
+	if p.Issue.State == "closed" && p.Issue.State_Reason != "" {
+		status = fmt.Sprintf(" (%s)", p.Issue.State_Reason)
+	}
+
+	return fmt.Sprintf("%s issue %s%s",
+		action,
+		formatIssueOrPRLink(p.Issue.Title, p.Issue.Number, p.Issue.Html_Url),
+		status)
 }
 
 type IssueCommentPayload struct {
@@ -135,8 +173,22 @@ type PullRequestPayload struct {
 }
 
 func (p *PullRequestPayload) Format() string {
+	var action string
+	switch p.Action {
+	case "opened":
+		action = colorize("created", COLOR_GREEN)
+	case "closed":
+		if p.Pull_Request.Merged {
+			action = colorize("merged", COLOR_PURPLE)
+		} else {
+			action = colorize("closed", COLOR_RED)
+		}
+	default:
+		action = p.Action
+	}
+
 	return fmt.Sprintf("%s PR %s",
-		p.Action,
+		action,
 		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url))
 }
 
