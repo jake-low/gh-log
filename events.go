@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/fatih/color"
 )
 
 // Helper types
@@ -60,18 +61,6 @@ type Formatter interface {
 	Format() string
 }
 
-const (
-	COLOR_RESET  = "\033[0m"
-	COLOR_GREEN  = "\033[32m"
-	COLOR_PURPLE = "\033[35m"
-	COLOR_GRAY   = "\033[90m"
-	COLOR_RED    = "\033[31m"
-)
-
-func colorize(text string, color string) string {
-	return color + text + COLOR_RESET
-}
-
 func formatLink(text string, url string) string {
 	return fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", url, text)
 }
@@ -127,13 +116,13 @@ func (p *IssuePayload) Format() string {
 	var action string
 	switch p.Action {
 	case "opened":
-		action = colorize("created", COLOR_GREEN)
+		action = color.GreenString("created")
 	case "closed":
 		if p.Issue.State == "closed" {
 			if p.Issue.State_Reason == "completed" {
-				action = colorize("closed", COLOR_PURPLE)
+				action = color.MagentaString("closed")
 			} else if p.Issue.State_Reason == "not_planned" {
-				action = colorize("closed", COLOR_GRAY)
+				action = color.HiBlackString("closed")
 			}
 		}
 	default:
@@ -176,12 +165,12 @@ func (p *PullRequestPayload) Format() string {
 	var action string
 	switch p.Action {
 	case "opened":
-		action = colorize("created", COLOR_GREEN)
+		action = color.GreenString("created")
 	case "closed":
 		if p.Pull_Request.Merged {
-			action = colorize("merged", COLOR_PURPLE)
+			action = color.MagentaString("merged")
 		} else {
-			action = colorize("closed", COLOR_RED)
+			action = color.RedString("closed")
 		}
 	default:
 		action = p.Action
