@@ -56,8 +56,9 @@ type IssueCommentPayload struct {
 }
 
 type Issue struct {
-	Number int
-	Title  string
+	Number       int
+	Title        string
+	Pull_Request *PullRequestURLs
 }
 
 type PullRequestPayload struct {
@@ -68,6 +69,10 @@ type PullRequestPayload struct {
 type PullRequest struct {
 	Number int
 	Title  string
+}
+
+type PullRequestURLs struct {
+	Url string
 }
 
 type PullRequestReviewPayload struct {
@@ -200,8 +205,12 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-
-			fmt.Printf("commented on issue \"%s\" (#%d)\n", payload.Issue.Title, payload.Issue.Number)
+			kind := "issue"
+			if payload.Issue.Pull_Request != nil {
+				// this "issue" is actually a PR
+				kind = "PR"
+			}
+			fmt.Printf("commented on %s \"%s\" (#%d)\n", kind, payload.Issue.Title, payload.Issue.Number)
 		case "PublicEvent":
 			fmt.Printf("made repository public\n")
 		case "PullRequestEvent":
