@@ -72,8 +72,18 @@ type PullRequest struct {
 
 type PullRequestReviewPayload struct {
 	Action       string
-	Review       PullRequestReview
 	Pull_Request PullRequest
+	Review       PullRequestReview
+}
+
+type PullRequestReviewCommentPayload struct {
+	Action       string
+	Pull_Request PullRequest
+	// Comment      Comment
+}
+
+type Comment struct {
+	Body string
 }
 
 type PullRequestReview struct {
@@ -210,6 +220,14 @@ func main() {
 			}
 
 			fmt.Printf("reviewed PR \"%s\" (#%d) (%s)\n", payload.Pull_Request.Title, payload.Pull_Request.Number, payload.Review.State)
+		case "PullRequestReviewCommentEvent":
+			payload := new(PullRequestReviewCommentPayload)
+			err = json.Unmarshal(event.Payload, payload)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Printf("left review comment on PR \"%s\" (#%d)\n", payload.Pull_Request.Title, payload.Pull_Request.Number)
 		case "ReleaseEvent":
 			payload := new(ReleasePayload)
 			err = json.Unmarshal(event.Payload, payload)
