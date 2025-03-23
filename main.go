@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/markusmobius/go-dateparser"
 	"log"
 	"strings"
 	"time"
@@ -11,7 +13,34 @@ import (
 const TIME_FORMAT = "15:04"
 const DATE_FORMAT = "Monday, January 2"
 
+func parseDateString(input string) (time.Time, error) {
+	cfg := &dateparser.Configuration{
+		CurrentTime: time.Now(),
+	}
+	parsed, err := dateparser.Parse(cfg, input)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	since := parsed.Time
+
+	if !parsed.Period.IsTime() {
+		year, month, day := since.Date()
+		since = time.Date(year, month, day, 0, 0, 0, 0, since.Location())
+	}
+
+	return since, nil
+}
+
 func run() error {
+	sinceStr := flag.String("since", "7 days ago", "Show events since this time (accepts absolute or relative times)")
+	flag.Parse()
+
+	since, err := parseDateString(*sinceStr)
+	if err != nil {
+		return fmt.Errorf("parsing --since date: %w", err)
+	}
+
 	client, err := api.DefaultRESTClient()
 	if err != nil {
 		return err
@@ -22,51 +51,66 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	username := userResponse.Login
-
-	eventsResponse := []Event{}
-	err = client.Get(fmt.Sprintf("users/%s/events?per_page=100", username), &eventsResponse)
-	if err != nil {
-		return err
-	}
 
 	var currentDay time.Time
 	var currentRepo string
-	for _, event := range eventsResponse {
-		t, err := time.Parse(time.RFC3339, event.Created_At)
-		if err != nil {
-			return err
+	page := 1
+
+	for {
+		var events []Event
+		url := fmt.Sprintf("users/%s/events?per_page=50&page=%d", userResponse.Login, page)
+		if err := client.Get(url, &events); err != nil {
+			return fmt.Errorf("fetching events page %d: %w", page, err)
 		}
 
-		localTime := t.In(time.Local)
+		if len(events) == 0 {
+			fmt.Println("\nGitHub API returned no more events")
+			break
+		}
 
-		// if this is a new day, print the date header
-		if currentDay.IsZero() || localTime.YearDay() != currentDay.YearDay() {
-			if !currentDay.IsZero() {
-				fmt.Println()
+		for _, event := range events {
+			// Parse the event time and check if it's before our cutoff
+			eventTime, err := time.Parse(time.RFC3339, event.Created_At)
+			if err != nil {
+				return fmt.Errorf("parsing event time: %w", err)
 			}
-			fmt.Printf("%s\n", localTime.Format(DATE_FORMAT))
-			fmt.Println(strings.Repeat("-", 48))
-			currentDay = localTime
-			currentRepo = ""
-		}
 
-		// if this is a new repository, print the repo header
-		if currentRepo != event.Repo.Name {
-			if currentRepo != "" {
-				fmt.Println()
+			if eventTime.Before(since) {
+				return nil
 			}
-			fmt.Printf("%s\n", event.Repo.Name)
-			currentRepo = event.Repo.Name
+
+			localTime := eventTime.In(time.Local)
+
+			// if this is a new day, print the date header
+			if currentDay.IsZero() || localTime.YearDay() != currentDay.YearDay() {
+				if !currentDay.IsZero() {
+					fmt.Println()
+				}
+				fmt.Printf("%s\n", localTime.Format(DATE_FORMAT))
+				fmt.Println(strings.Repeat("-", 48))
+				currentDay = localTime
+				currentRepo = ""
+			}
+
+			// if this is a new repository, print the repo header
+			if currentRepo != event.Repo.Name {
+				if currentRepo != "" {
+					fmt.Println()
+				}
+				fmt.Printf("%s\n", event.Repo.Name)
+				currentRepo = event.Repo.Name
+			}
+
+			fmt.Printf("  %s  ", localTime.Format(TIME_FORMAT))
+
+			message, err := formatEvent(event.Type, event.Payload)
+			if err != nil {
+				return fmt.Errorf("formatting event: %w", err)
+			}
+			fmt.Println(message)
 		}
 
-		fmt.Printf("  %s  ", localTime.Format(TIME_FORMAT))
-
-		message, err := formatEvent(event.Type, event.Payload)
-		if err != nil {
-			return err
-		}
-		fmt.Println(message)
+		page++
 	}
 
 	return nil
