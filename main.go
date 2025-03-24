@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/cli/go-gh/v2/pkg/config"
 	"github.com/fatih/color"
 	"github.com/markusmobius/go-dateparser"
 	"log"
@@ -46,70 +47,85 @@ func run() error {
 		return err
 	}
 
-	userResponse := struct{ Login string }{}
-	err = client.Get("user", &userResponse)
+	cfg, err := config.Read(nil)
 	if err != nil {
 		return err
 	}
 
-	var currentDay time.Time
-	var currentRepo string
-	page := 1
+	username, err := cfg.Get([]string{"hosts", "github.com", "user"})
+	if err != nil {
+		return err
+	}
 
+	var events []Event
+	page := 1
+	pageSize := 100
+
+	// First, fetch events a page at a time until before the --since time
+outer:
 	for {
-		var events []Event
-		url := fmt.Sprintf("users/%s/events?per_page=50&page=%d", userResponse.Login, page)
-		if err := client.Get(url, &events); err != nil {
+		var batch []Event
+		url := fmt.Sprintf("users/%s/events?per_page=%d&page=%d", username, pageSize, page)
+		err := client.Get(url, &batch)
+		if err != nil {
 			return fmt.Errorf("fetching events page %d: %w", page, err)
 		}
 
-		if len(events) == 0 {
-			fmt.Println("\nGitHub API returned no more events")
-			break
-		}
-
-		for _, event := range events {
-			// Parse the event time and check if it's before our cutoff
-			eventTime, err := time.Parse(time.RFC3339, event.Created_At)
+		for _, event := range batch {
+			dt, err := time.Parse(time.RFC3339, event.Created_At)
 			if err != nil {
 				return fmt.Errorf("parsing event time: %w", err)
 			}
 
-			if eventTime.Before(since) {
-				return nil
+			if dt.Before(since) {
+				break outer
 			}
 
-			localTime := eventTime.In(time.Local)
+			events = append(events, event)
+		}
 
-			// if this is a new day, print the date header
-			if currentDay.IsZero() || localTime.YearDay() != currentDay.YearDay() {
-				if !currentDay.IsZero() {
-					fmt.Println()
-				}
-				fmt.Printf("%s\n", color.YellowString(localTime.Format(DATE_FORMAT)))
-				currentDay = localTime
-				currentRepo = ""
-			}
-
-			// if this is a new repository, print the repo header
-			if currentRepo != event.Repo.Name {
-				if currentRepo != "" {
-					fmt.Println()
-				}
-				fmt.Printf("%s\n", color.HiWhiteString(event.Repo.Name))
-				currentRepo = event.Repo.Name
-			}
-
-			fmt.Printf("  %s  ", localTime.Format(TIME_FORMAT))
-
-			message, err := formatEvent(event.Type, event.Payload)
-			if err != nil {
-				return fmt.Errorf("formatting event: %w", err)
-			}
-			fmt.Println(message)
+		if len(batch) < pageSize {
+			fmt.Println("Warning: GitHub API did not return any events before", events[len(events) - 1].Created_At)
+			break
 		}
 
 		page++
+	}
+
+	// Then loop over the events in reverse order (so oldest first) and print them
+	var currentDay time.Time
+	var currentRepo string
+
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		eventTime, _ := time.Parse(time.RFC3339, event.Created_At)
+		localTime := eventTime.In(time.Local)
+
+		// if this is a new day, print the date header
+		if currentDay.IsZero() || localTime.YearDay() != currentDay.YearDay() {
+			if !currentDay.IsZero() {
+				fmt.Println()
+			}
+			fmt.Printf("%s\n", color.YellowString(localTime.Format(DATE_FORMAT)))
+			currentDay = localTime
+			currentRepo = ""
+		}
+
+		// if this is a new repository, print the repo header
+		if currentRepo != event.Repo.Name {
+			if currentRepo != "" {
+				fmt.Println()
+			}
+			fmt.Printf("%s\n", color.HiWhiteString(event.Repo.Name))
+			currentRepo = event.Repo.Name
+		}
+
+		fmt.Printf("  %s  ", localTime.Format(TIME_FORMAT))
+		message, err := formatEvent(event.Type, event.Payload)
+		if err != nil {
+			return fmt.Errorf("formatting event: %w", err)
+		}
+		fmt.Println(message)
 	}
 
 	return nil
@@ -120,6 +136,3 @@ func main() {
 		log.Fatal(err)
 	}
 }
-
-// For more examples of using go-gh, see:
-// https://github.com/cli/go-gh/blob/trunk/example_gh_test.go
