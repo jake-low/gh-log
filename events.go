@@ -48,6 +48,22 @@ type Forkee struct {
 	Full_Name string
 }
 
+type CommitComment struct {
+	Commit_Id string
+	Html_Url  string
+}
+
+type User struct {
+	Login    string
+	Html_Url string
+}
+
+type Discussion struct {
+	Number   int
+	Title    string
+	Html_Url string
+}
+
 type Release struct {
 	Name     string
 	Tag_Name string
@@ -294,6 +310,44 @@ func (p *ReleasePayload) Format() string {
 	return fmt.Sprintf("released %s", formatLink(name, p.Release.Html_Url))
 }
 
+type CommitCommentPayload struct {
+	Comment CommitComment
+}
+
+func (p *CommitCommentPayload) Format() string {
+	sha := p.Comment.Commit_Id
+	if len(sha) > 7 {
+		sha = sha[:7]
+	}
+	return fmt.Sprintf("commented on commit %s", formatLink(sha, p.Comment.Html_Url))
+}
+
+type MemberPayload struct {
+	Member User
+}
+
+// FIXME: it's unclear to me from the docs whether the 'actor' of a MemberEvent
+// is the user who sent the invitation or the one who accepted it. Until I can
+// test this I'm phrasing the message so it'll kind of make sense either way.
+func (p *MemberPayload) Format() string {
+	return fmt.Sprintf("%s added as collaborator", formatLink(p.Member.Login, p.Member.Html_Url))
+}
+
+type DiscussionPayload struct {
+	Action     string
+	Discussion Discussion
+}
+
+func (p *DiscussionPayload) Format() string {
+	action := p.Action
+	if action == "created" {
+		action = color.GreenString("created")
+	}
+	return fmt.Sprintf("%s discussion %s",
+		action,
+		formatIssueOrPRLink(p.Discussion.Title, p.Discussion.Number, p.Discussion.Html_Url))
+}
+
 type GollumPayload struct {
 	Pages []Page
 }
@@ -352,6 +406,12 @@ func parseEvent(f *Fetcher, event *Event) error {
 		formatter = new(ReleasePayload)
 	case "GollumEvent":
 		formatter = new(GollumPayload)
+	case "CommitCommentEvent":
+		formatter = new(CommitCommentPayload)
+	case "MemberEvent":
+		formatter = new(MemberPayload)
+	case "DiscussionEvent":
+		formatter = new(DiscussionPayload)
 	case "PublicEvent":
 		formatter = staticFormatter("made repository public")
 	case "WatchEvent":
