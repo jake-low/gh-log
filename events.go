@@ -22,11 +22,17 @@ type Issue struct {
 }
 
 type PullRequest struct {
-	Number   int
-	Title    string
-	Html_Url string
-	State    string
-	Merged   bool
+	Number           int
+	Title            string
+	Html_Url         string
+	State            string
+	Merged           bool
+	Merge_Commit_Sha string
+	Base             PullRequestBase
+}
+
+type PullRequestBase struct {
+	Ref string
 }
 
 type Comment struct {
@@ -47,6 +53,7 @@ type Release struct {
 }
 
 type PullRequestReview struct {
+	Id    int64
 	State string
 }
 
@@ -55,10 +62,23 @@ type Event struct {
 	Created_At string
 	Repo       Repository
 	Payload    json.RawMessage
+	parsed     Formatter
 }
 
 type Formatter interface {
 	Format() string
+}
+
+type staticFormatter string
+
+func (s staticFormatter) Format() string {
+	return string(s)
+}
+
+// Hydrator is implemented by payloads that need to fetch details missing from
+// the Events API response before they can be formatted.
+type Hydrator interface {
+	Hydrate(f *Fetcher, repo string) error
 }
 
 func formatLink(text string, url string) string {
@@ -66,19 +86,47 @@ func formatLink(text string, url string) string {
 }
 
 func formatIssueOrPRLink(title string, number int, url string) string {
+	if title == "" {
+		return formatLink(fmt.Sprintf("#%d", number), url)
+	}
 	return formatLink(fmt.Sprintf("\"%s\" (#%d)", title, number), url)
+}
+
+func hydratePull(f *Fetcher, repo string, pr *PullRequest) error {
+	full, err := f.Pull(repo, pr.Number)
+	if err != nil {
+		return err
+	}
+	if full != nil {
+		*pr = *full
+	}
+	return nil
 }
 
 // Event payload types
 
 type PushPayload struct {
-	Ref           string
-	Size          int
-	Distinct_Size int
+	Ref    string
+	Head   string
+	Before string
+	count  int
+}
+
+func (p *PushPayload) Hydrate(f *Fetcher, repo string) error {
+	var err error
+	p.count, err = f.CommitCount(repo, p.Before, p.Head)
+	return err
 }
 
 func (p *PushPayload) Format() string {
-	return fmt.Sprintf("pushed %d commits to %s", p.Distinct_Size, p.Ref)
+	if p.count < 0 {
+		return fmt.Sprintf("pushed to %s", p.Ref)
+	}
+	noun := "commits"
+	if p.count == 1 {
+		noun = "commit"
+	}
+	return fmt.Sprintf("pushed %d %s to %s", p.count, noun, p.Ref)
 }
 
 type CreatePayload struct {
@@ -118,19 +166,18 @@ func (p *IssuePayload) Format() string {
 	case "opened":
 		action = color.GreenString("created")
 	case "closed":
-		if p.Issue.State == "closed" {
-			if p.Issue.State_Reason == "completed" {
-				action = color.MagentaString("closed")
-			} else if p.Issue.State_Reason == "not_planned" {
-				action = color.HiBlackString("closed")
-			}
+		action = color.MagentaString("closed")
+		if p.Issue.State_Reason == "not_planned" {
+			action = color.HiBlackString("closed")
 		}
 	default:
 		action = p.Action
 	}
 
+	// The payload's issue reflects its current state, not its state at the
+	// time of the event, so State_Reason may be stale or refer to a later close.
 	status := ""
-	if p.Issue.State == "closed" && p.Issue.State_Reason != "" {
+	if p.Action == "closed" && p.Issue.State == "closed" && p.Issue.State_Reason != "" {
 		status = fmt.Sprintf(" (%s)", p.Issue.State_Reason)
 	}
 
@@ -161,24 +208,31 @@ type PullRequestPayload struct {
 	Pull_Request PullRequest
 }
 
+func (p *PullRequestPayload) Hydrate(f *Fetcher, repo string) error {
+	return hydratePull(f, repo, &p.Pull_Request)
+}
+
+func (p *PullRequestPayload) isMerge() bool {
+	return p.Action == "merged" || (p.Action == "closed" && p.Pull_Request.Merged)
+}
+
 func (p *PullRequestPayload) Format() string {
+	link := formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url)
+	if p.isMerge() {
+		return fmt.Sprintf("%s PR %s to %s", color.MagentaString("merged"), link, p.Pull_Request.Base.Ref)
+	}
+
 	var action string
 	switch p.Action {
 	case "opened":
 		action = color.GreenString("created")
 	case "closed":
-		if p.Pull_Request.Merged {
-			action = color.MagentaString("merged")
-		} else {
-			action = color.RedString("closed")
-		}
+		action = color.RedString("closed")
 	default:
 		action = p.Action
 	}
 
-	return fmt.Sprintf("%s PR %s",
-		action,
-		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url))
+	return fmt.Sprintf("%s PR %s", action, link)
 }
 
 type PullRequestReviewPayload struct {
@@ -187,8 +241,17 @@ type PullRequestReviewPayload struct {
 	Review       PullRequestReview
 }
 
+func (p *PullRequestReviewPayload) Hydrate(f *Fetcher, repo string) error {
+	return hydratePull(f, repo, &p.Pull_Request)
+}
+
 func (p *PullRequestReviewPayload) Format() string {
-	return fmt.Sprintf("reviewed PR %s (%s)",
+	verb := "reviewed PR"
+	if p.Action == "updated" {
+		verb = "updated review on PR"
+	}
+	return fmt.Sprintf("%s %s (%s)",
+		verb,
 		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url),
 		p.Review.State)
 }
@@ -196,6 +259,10 @@ func (p *PullRequestReviewPayload) Format() string {
 type PullRequestReviewCommentPayload struct {
 	Action       string
 	Pull_Request PullRequest
+}
+
+func (p *PullRequestReviewCommentPayload) Hydrate(f *Fetcher, repo string) error {
+	return hydratePull(f, repo, &p.Pull_Request)
 }
 
 func (p *PullRequestReviewCommentPayload) Format() string {
@@ -211,10 +278,12 @@ func (p *ReleasePayload) Format() string {
 	return fmt.Sprintf("released %s", p.Release.Name)
 }
 
-func formatEvent(eventType string, payload json.RawMessage) (string, error) {
+// parseEvent decodes the event's payload into event.parsed, fetching any
+// details that are missing from the payload.
+func parseEvent(f *Fetcher, event *Event) error {
 	var formatter Formatter
 
-	switch eventType {
+	switch event.Type {
 	case "PushEvent":
 		formatter = new(PushPayload)
 	case "CreateEvent":
@@ -236,17 +305,62 @@ func formatEvent(eventType string, payload json.RawMessage) (string, error) {
 	case "ReleaseEvent":
 		formatter = new(ReleasePayload)
 	case "PublicEvent":
-		return "made repository public", nil
+		formatter = staticFormatter("made repository public")
 	case "WatchEvent":
-		return "starred repository", nil
+		formatter = staticFormatter("starred repository")
 	default:
-		return eventType, nil
+		formatter = staticFormatter(event.Type)
 	}
 
-	err := json.Unmarshal(payload, formatter)
-	if err != nil {
-		return "", err
+	if _, ok := formatter.(staticFormatter); !ok {
+		if err := json.Unmarshal(event.Payload, formatter); err != nil {
+			return err
+		}
 	}
 
-	return formatter.Format(), nil
+	if h, ok := formatter.(Hydrator); ok {
+		if err := h.Hydrate(f, event.Repo.Name); err != nil {
+			return err
+		}
+	}
+
+	event.parsed = formatter
+	return nil
+}
+
+// Removes events that duplicate information shown by other events:
+// - pushes created by merging a PR
+// - review updated events for reviews that were also created (which happens
+//   when a pending review is submitted)
+func dropRedundant(events []Event) []Event {
+	merges := map[string]bool{}
+	reviews := map[int64]bool{}
+	for _, e := range events {
+		switch p := e.parsed.(type) {
+		case *PullRequestPayload:
+			if p.isMerge() && p.Pull_Request.Merge_Commit_Sha != "" {
+				merges[e.Repo.Name+"@"+p.Pull_Request.Merge_Commit_Sha] = true
+			}
+		case *PullRequestReviewPayload:
+			if p.Action == "created" {
+				reviews[p.Review.Id] = true
+			}
+		}
+	}
+
+	var kept []Event
+	for _, e := range events {
+		switch p := e.parsed.(type) {
+		case *PushPayload:
+			if merges[e.Repo.Name+"@"+p.Head] {
+				continue
+			}
+		case *PullRequestReviewPayload:
+			if p.Action == "updated" && reviews[p.Review.Id] {
+				continue
+			}
+		}
+		kept = append(kept, e)
+	}
+	return kept
 }

@@ -7,7 +7,9 @@ import (
 	"github.com/cli/go-gh/v2/pkg/config"
 	"github.com/fatih/color"
 	"github.com/markusmobius/go-dateparser"
+	"golang.org/x/sync/errgroup"
 	"log"
+	"sort"
 	"time"
 )
 
@@ -58,11 +60,12 @@ func run() error {
 	}
 
 	var events []Event
+	var oldest time.Time
 	page := 1
 	pageSize := 100
 
-	// First, fetch events a page at a time until before the --since time
-outer:
+	// Events are only roughly ordered by time, so keep fetching pages until one
+	// contains no events after the --since time.
 	for {
 		var batch []Event
 		url := fmt.Sprintf("users/%s/events?per_page=%d&page=%d", username, pageSize, page)
@@ -71,33 +74,65 @@ outer:
 			return fmt.Errorf("fetching events page %d: %w", page, err)
 		}
 
+		found := false
 		for _, event := range batch {
 			dt, err := time.Parse(time.RFC3339, event.Created_At)
 			if err != nil {
 				return fmt.Errorf("parsing event time: %w", err)
 			}
 
-			if dt.Before(since) {
-				break outer
+			if oldest.IsZero() || dt.Before(oldest) {
+				oldest = dt
 			}
 
-			events = append(events, event)
+			if !dt.Before(since) {
+				events = append(events, event)
+				found = true
+			}
+		}
+
+		if !found {
+			break
 		}
 
 		if len(batch) < pageSize {
-			fmt.Println("Warning: GitHub API did not return any events before", events[len(events) - 1].Created_At)
+			if oldest.After(since) {
+				fmt.Println("Warning: GitHub API did not return any events before", oldest.Format(time.RFC3339))
+			}
 			break
 		}
 
 		page++
 	}
 
-	// Then loop over the events in reverse order (so oldest first) and print them
+	// Sort events by timestamp (lexicographical sort is fine, since timestamps
+	// are RFC 3339 and in UTC)
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].Created_At < events[j].Created_At
+	})
+
+	// Parsing may require API requests, so do it concurrently
+	fetcher := NewFetcher(client)
+	var g errgroup.Group
+	g.SetLimit(10)
+	for i := range events {
+		g.Go(func() error {
+			if err := parseEvent(fetcher, &events[i]); err != nil {
+				return fmt.Errorf("parsing %s payload: %w", events[i].Type, err)
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	events = dropRedundant(events)
+
 	var currentDay time.Time
 	var currentRepo string
 
-	for i := len(events) - 1; i >= 0; i-- {
-		event := events[i]
+	for _, event := range events {
 		eventTime, _ := time.Parse(time.RFC3339, event.Created_At)
 		localTime := eventTime.In(time.Local)
 
@@ -120,12 +155,7 @@ outer:
 			currentRepo = event.Repo.Name
 		}
 
-		fmt.Printf("  %s  ", localTime.Format(TIME_FORMAT))
-		message, err := formatEvent(event.Type, event.Payload)
-		if err != nil {
-			return fmt.Errorf("formatting event: %w", err)
-		}
-		fmt.Println(message)
+		fmt.Printf("  %s  %s\n", localTime.Format(TIME_FORMAT), event.parsed.Format())
 	}
 
 	return nil

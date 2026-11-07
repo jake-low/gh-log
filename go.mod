@@ -7,7 +7,7 @@ require github.com/cli/go-gh/v2 v2.11.2
 require (
 	github.com/fatih/color v1.18.0
 	github.com/markusmobius/go-dateparser v1.2.3
-	github.com/mattn/go-isatty v0.0.20
+	golang.org/x/sync v0.12.0
 )
 
 require (
@@ -21,8 +21,8 @@ require (
 	github.com/jalaali/go-jalaali v0.0.0-20210801064154-80525e88d958 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
-	github.com/magefile/mage v1.15.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/muesli/termenv v0.15.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
