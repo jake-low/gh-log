@@ -189,7 +189,7 @@ func (p *IssuePayload) Format() string {
 	// time of the event, so State_Reason may be stale or refer to a later close.
 	status := ""
 	if p.Action == "closed" && p.Issue.State == "closed" && p.Issue.State_Reason != "" {
-		status = fmt.Sprintf(" (%s)", p.Issue.State_Reason)
+		status = fmt.Sprintf(" (%s)", strings.ReplaceAll(p.Issue.State_Reason, "_", " "))
 	}
 
 	return fmt.Sprintf("%s issue %s%s",
@@ -264,7 +264,7 @@ func (p *PullRequestReviewPayload) Format() string {
 	return fmt.Sprintf("%s %s (%s)",
 		verb,
 		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url),
-		p.Review.State)
+		strings.ReplaceAll(p.Review.State, "_", " "))
 }
 
 type PullRequestReviewCommentPayload struct {
