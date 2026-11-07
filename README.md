@@ -19,19 +19,19 @@ work-org/monorepo
   12:03  created branch rewrite-in-rust
   12:05  created PR "Rewrite the whole app in Rust!" (#60)
   12:07  merged PR "Rewrite the whole app in Rust!" (#60)
-  12:07  pushed 1 commits to refs/heads/main
+  12:07  pushed 1 commits to main
+         fe5c913 chore: full rust rewrite
   13:18  commented on issue "Uhh was the Rust rewrite discussed anywhere?" (#61)
-  13:27  closed PR "Revert 'Rewrite the whole app in Rust!'" (#62) (not_planned)
+  13:27  closed PR "Revert 'Rewrite the whole app in Rust!'" (#62) (not planned)
 
 Saturday, March 22
 me/cool-side-project
-  21:40  pushed 7 commits to refs/heads/main
+  21:40  pushed 2 commits to main
+         39cf6dc add fixme comment about RCE vulnerability
+         7bf6552 use more emojis in console output
   21:43  created tag v0.119.0
   21:43  released v0.119.0
   
-me/other-cool-side-project
-  23:57  pushed 3 commits to refs/heads/refactor
-
 Sunday, March 23
 nodejs/node
   17:10  opened issue "A proposal to combine null and undefined into one value" (#57601)
@@ -41,8 +41,18 @@ nodejs/node
   17:40  commented on issue "A proposal to combine null and undefined into one value" (#57601)
   
 me/resume
-  19:26  pushed 1 commits to refs/heads/main
+  19:26  pushed 1 commit to main
+         a08f063 add HTML to list of programming languages
 ```
+
+## Options
+
+- `--since <time>`: show events since this time (default: `7 days ago`). Accepts absolute or relative times, like `2026-11-03`, `yesterday`, `monday`, or `3 hours ago`. A date without a time means the start of that day.
+- `--until <time>`: show events before this time. Accepts the same formats as `--since`; a date without a time includes that whole day, so `--since monday --until wednesday` covers 72 hours.
+- `--repo <owner/name>`: only show events in this repository. May be repeated.
+- `--owner <name>`: only show events in repositories owned by this user or organization. May be repeated, and combined with `--repo`.
+- `--commits`: list the first few commits of each push.
+- `--all`: show every event on its own line. By default, `gh log` collapses closely related events into a single line (for example, several comments on the same issue, or review comments followed by the review they belong to) and omits events that duplicate others (such as the push created by merging a PR). `--all` disables this behaviour to show every event separately.
 
 ## Limitations
 
