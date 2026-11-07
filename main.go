@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/cli/go-gh/v2/pkg/auth"
 	"github.com/cli/go-gh/v2/pkg/config"
 	"github.com/fatih/color"
 	"github.com/markusmobius/go-dateparser"
@@ -54,7 +55,8 @@ func run() error {
 		return err
 	}
 
-	username, err := cfg.Get([]string{"hosts", "github.com", "user"})
+	host, _ := auth.DefaultHost()
+	username, err := cfg.Get([]string{"hosts", host, "user"})
 	if err != nil {
 		return err
 	}
