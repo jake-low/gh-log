@@ -32,6 +32,9 @@ type PullRequest struct {
 	Merge_Commit_Sha string
 	Head             PullRequestRef
 	Base             PullRequestRef
+	Additions        int
+	Deletions        int
+	Changed_Files    int
 }
 
 type PullRequestRef struct {
@@ -132,6 +135,12 @@ func withComments(n int) string {
 	}
 }
 
+func formatStats(additions int, deletions int) string {
+	return fmt.Sprintf(" (%s %s)",
+		color.GreenString("+%d", additions),
+		color.RedString("-%d", deletions))
+}
+
 func hydratePull(f *Fetcher, repo string, pr *PullRequest) error {
 	full, err := f.Pull(repo, pr.Number)
 	if err != nil {
@@ -155,7 +164,10 @@ type PushPayload struct {
 	count      int // -1 if unknown
 	commits    []Commit
 	compareUrl string
-	pushes     int // number of pushes collapsed into this one, if more than one
+	additions  int
+	deletions  int
+	truncated  bool // too many files changed to count additions and deletions
+	pushes     int  // number of pushes collapsed into this one, if more than one
 }
 
 func (p *PushPayload) Hydrate(f *Fetcher, repo string) error {
@@ -170,6 +182,11 @@ func (p *PushPayload) Hydrate(f *Fetcher, repo string) error {
 	p.count = cmp.Total_Commits
 	p.commits = cmp.Commits
 	p.compareUrl = cmp.Html_Url
+	for _, file := range cmp.Files {
+		p.additions += file.Additions
+		p.deletions += file.Deletions
+	}
+	p.truncated = len(cmp.Files) >= compareFileLimit
 	return nil
 }
 
@@ -186,7 +203,11 @@ func (p *PushPayload) Format() string {
 	if p.count == 1 {
 		noun = "commit"
 	}
-	return fmt.Sprintf("pushed %d %s to %s%s", p.count, noun, ref, pushes)
+	stats := formatStats(p.additions, p.deletions)
+	if p.truncated {
+		stats = fmt.Sprintf(" (%d+ files)", compareFileLimit)
+	}
+	return fmt.Sprintf("pushed %d %s to %s%s%s", p.count, noun, ref, stats, pushes)
 }
 
 // FormatCommits returns one line for each of the push's first few commits,
@@ -304,13 +325,21 @@ func (p *PullRequestPayload) isMerge() bool {
 
 func (p *PullRequestPayload) Format() string {
 	link := formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url)
+
+	// Stats reflect the PR's current state, not its state at the time of the
+	// event. Changed_Files is zero if the PR couldn't be fetched.
+	stats := ""
+	if p.Pull_Request.Changed_Files > 0 && (p.isMerge() || p.Action == "opened") {
+		stats = formatStats(p.Pull_Request.Additions, p.Pull_Request.Deletions)
+	}
+
 	if p.isMerge() {
 		deleted := ""
 		if p.deletedBranch {
 			deleted = fmt.Sprintf(" (deleted branch %s)", p.Pull_Request.Head.Ref)
 		}
-		return fmt.Sprintf("%s PR %s to %s%s%s",
-			color.MagentaString("merged"), link, p.Pull_Request.Base.Ref, deleted, withComments(p.comments))
+		return fmt.Sprintf("%s PR %s to %s%s%s%s",
+			color.MagentaString("merged"), link, p.Pull_Request.Base.Ref, stats, deleted, withComments(p.comments))
 	}
 
 	var action string
@@ -328,7 +357,7 @@ func (p *PullRequestPayload) Format() string {
 		from = fmt.Sprintf(" from %s", p.Pull_Request.Head.Ref)
 	}
 
-	return fmt.Sprintf("%s PR %s%s%s", action, link, from, withComments(p.comments))
+	return fmt.Sprintf("%s PR %s%s%s%s", action, link, from, stats, withComments(p.comments))
 }
 
 type PullRequestReviewPayload struct {
@@ -620,6 +649,9 @@ func combine(a, b Event) (Event, bool) {
 				p.count += q.count
 			}
 			p.commits = append(p.commits, q.commits...)
+			p.additions += q.additions
+			p.deletions += q.deletions
+			p.truncated = p.truncated || q.truncated
 			// The compare URL ends with the head SHA we requested; point it at
 			// the new head so it covers all of the collapsed pushes
 			if prefix, ok := strings.CutSuffix(p.compareUrl, p.Head); ok && q.compareUrl != "" {

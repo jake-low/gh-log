@@ -65,7 +65,15 @@ type Comparison struct {
 	Html_Url      string
 	Total_Commits int
 	Commits       []Commit // the oldest maxCommits commits
+	Files         []struct {
+		Additions int
+		Deletions int
+	}
 }
+
+// compareFileLimit is the maximum number of files the compare API lists. A
+// comparison with this many files may have been truncated.
+const compareFileLimit = 300
 
 type Commit struct {
 	Sha      string

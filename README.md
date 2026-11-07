@@ -17,18 +17,18 @@ $ gh log --since '3 days ago'
 Friday, March 21
 work-org/monorepo
   12:03  created branch rewrite-in-rust
-  12:05  created PR "Rewrite the whole app in Rust!" (#60)
-  12:07  merged PR "Rewrite the whole app in Rust!" (#60)
-  12:07  pushed 1 commits to main
+  12:04  pushed 1 commits to main (+71690 -58253)
          fe5c913 chore: full rust rewrite
+  12:05  created PR "Rewrite the whole app in Rust!" (#60) from rewrite-in-rust (+71690 -58253)
+  12:07  merged PR "Rewrite the whole app in Rust!" (#60) to main (+71690 -58253)
   13:18  commented on issue "Uhh was the Rust rewrite discussed anywhere?" (#61)
   13:27  closed PR "Revert 'Rewrite the whole app in Rust!'" (#62) (not planned)
 
 Saturday, March 22
 me/cool-side-project
   21:40  pushed 2 commits to main
-         39cf6dc add fixme comment about RCE vulnerability
-         7bf6552 use more emojis in console output
+         39cf6dc add fixme comment about RCE vulnerability (+4 -0)
+         7bf6552 use more emojis in console output (+18 -18)
   21:43  created tag v0.119.0
   21:43  released v0.119.0
   
@@ -42,7 +42,7 @@ nodejs/node
   
 me/resume
   19:26  pushed 1 commit to main
-         a08f063 add HTML to list of programming languages
+         a08f063 add HTML to list of programming languages (+1 -0)
 ```
 
 ## Options
