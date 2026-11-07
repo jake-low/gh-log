@@ -264,7 +264,7 @@ func (p *IssuePayload) Format() string {
 	var action string
 	switch p.Action {
 	case "opened":
-		action = color.GreenString("created")
+		action = color.GreenString("opened")
 	case "closed":
 		action = color.MagentaString("closed")
 		if p.Issue.State_Reason == "not_planned" {
@@ -345,7 +345,7 @@ func (p *PullRequestPayload) Format() string {
 	var action string
 	switch p.Action {
 	case "opened":
-		action = color.GreenString("created")
+		action = color.GreenString("opened")
 	case "closed":
 		action = color.RedString("closed")
 	default:
