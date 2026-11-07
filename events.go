@@ -51,6 +51,7 @@ type Forkee struct {
 type Release struct {
 	Name     string
 	Tag_Name string
+	Html_Url string
 }
 
 type PullRequestReview struct {
@@ -290,7 +291,7 @@ func (p *ReleasePayload) Format() string {
 	if name == "" {
 		name = p.Release.Tag_Name
 	}
-	return fmt.Sprintf("released %s", name)
+	return fmt.Sprintf("released %s", formatLink(name, p.Release.Html_Url))
 }
 
 type GollumPayload struct {
