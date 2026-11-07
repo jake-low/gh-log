@@ -59,6 +59,7 @@ func run() error {
 		owners[strings.ToLower(s)] = true
 		return nil
 	})
+	commits := flag.Bool("commits", false, "List the first few commits of each push")
 	all := flag.Bool("all", false, "Show every event on its own line, without collapsing or omitting related events")
 	flag.Parse()
 
@@ -209,6 +210,12 @@ func run() error {
 		}
 
 		fmt.Printf("  %s  %s\n", localTime.Format(TIME_FORMAT), event.parsed.Format())
+
+		if p, ok := event.parsed.(*PushPayload); ok && *commits {
+			for _, line := range p.FormatCommits() {
+				fmt.Printf("         %s\n", line)
+			}
+		}
 	}
 
 	return nil

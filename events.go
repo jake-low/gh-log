@@ -145,18 +145,32 @@ func hydratePull(f *Fetcher, repo string, pr *PullRequest) error {
 
 // Event payload types
 
+// the number of commits listed for a push when the --commits option is used
+const maxCommits = 5
+
 type PushPayload struct {
-	Ref    string
-	Head   string
-	Before string
-	count  int
-	pushes int // number of pushes collapsed into this one, if more than one
+	Ref        string
+	Head       string
+	Before     string
+	count      int // -1 if unknown
+	commits    []Commit
+	compareUrl string
+	pushes     int // number of pushes collapsed into this one, if more than one
 }
 
 func (p *PushPayload) Hydrate(f *Fetcher, repo string) error {
-	var err error
-	p.count, err = f.CommitCount(repo, p.Before, p.Head)
-	return err
+	cmp, err := f.Compare(repo, p.Before, p.Head)
+	if err != nil {
+		return err
+	}
+	if cmp == nil {
+		p.count = -1
+		return nil
+	}
+	p.count = cmp.Total_Commits
+	p.commits = cmp.Commits
+	p.compareUrl = cmp.Html_Url
+	return nil
 }
 
 func (p *PushPayload) Format() string {
@@ -173,6 +187,24 @@ func (p *PushPayload) Format() string {
 		noun = "commit"
 	}
 	return fmt.Sprintf("pushed %d %s to %s%s", p.count, noun, ref, pushes)
+}
+
+// FormatCommits returns one line for each of the push's first few commits,
+// plus a line counting the rest if there are more.
+func (p *PushPayload) FormatCommits() []string {
+	var lines []string
+	for _, c := range p.commits[:min(len(p.commits), maxCommits)] {
+		subject, _, _ := strings.Cut(c.Commit.Message, "\n")
+		lines = append(lines, fmt.Sprintf("%s %s", formatLink(color.HiBlackString(c.Sha[:7]), c.Html_Url), subject))
+	}
+	if rest := p.count - len(lines); p.count >= 0 && rest > 0 {
+		more := fmt.Sprintf("... and %d more", rest)
+		if p.compareUrl != "" {
+			more = formatLink(more, p.compareUrl)
+		}
+		lines = append(lines, more)
+	}
+	return lines
 }
 
 type CreatePayload struct {
@@ -586,6 +618,14 @@ func combine(a, b Event) (Event, bool) {
 				p.count = -1
 			} else {
 				p.count += q.count
+			}
+			p.commits = append(p.commits, q.commits...)
+			// The compare URL ends with the head SHA we requested; point it at
+			// the new head so it covers all of the collapsed pushes
+			if prefix, ok := strings.CutSuffix(p.compareUrl, p.Head); ok && q.compareUrl != "" {
+				p.compareUrl = prefix + q.Head
+			} else {
+				p.compareUrl = ""
 			}
 			p.pushes = max(p.pushes, 1) + 1
 			p.Head = q.Head

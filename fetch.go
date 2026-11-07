@@ -61,23 +61,35 @@ func (f *Fetcher) Pull(repo string, number int) (*PullRequest, error) {
 	return e.pr, e.err
 }
 
-// CommitCount returns the number of commits in before...head, or -1 if the
-// count can't be determined (new branch, or a commit that no longer exists).
-func (f *Fetcher) CommitCount(repo string, before string, head string) (int, error) {
+type Comparison struct {
+	Html_Url      string
+	Total_Commits int
+	Commits       []Commit // the oldest maxCommits commits
+}
+
+type Commit struct {
+	Sha      string
+	Html_Url string
+	Commit   struct {
+		Message string
+	}
+}
+
+// Compare returns the commits in before...head, or nil if they can't be
+// determined (new branch, or a commit that no longer exists).
+func (f *Fetcher) Compare(repo string, before string, head string) (*Comparison, error) {
 	if strings.Trim(before, "0") == "" {
-		return -1, nil
+		return nil, nil
 	}
 
-	var cmp struct {
-		Total_Commits int
-	}
-	url := fmt.Sprintf("repos/%s/compare/%s...%s?per_page=1", repo, before, head)
-	err := f.client.Get(url, &cmp)
+	cmp := new(Comparison)
+	url := fmt.Sprintf("repos/%s/compare/%s...%s?per_page=%d", repo, before, head, maxCommits)
+	err := f.client.Get(url, cmp)
 	if isNotFound(err) {
-		return -1, nil
+		return nil, nil
 	} else if err != nil {
-		return 0, fmt.Errorf("comparing %s %s...%s: %w", repo, before, head, err)
+		return nil, fmt.Errorf("comparing %s %s...%s: %w", repo, before, head, err)
 	}
 
-	return cmp.Total_Commits, nil
+	return cmp, nil
 }
