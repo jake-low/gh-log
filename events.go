@@ -286,7 +286,11 @@ type ReleasePayload struct {
 }
 
 func (p *ReleasePayload) Format() string {
-	return fmt.Sprintf("released %s", p.Release.Name)
+	name := p.Release.Name
+	if name == "" {
+		name = p.Release.Tag_Name
+	}
+	return fmt.Sprintf("released %s", name)
 }
 
 type GollumPayload struct {
