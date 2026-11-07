@@ -57,6 +57,15 @@ type PullRequestReview struct {
 	State string
 }
 
+type Page struct {
+	Page_Name string
+	Title     string
+	Summary   *string
+	Action    string
+	Sha       string
+	Html_Url  string
+}
+
 type Event struct {
 	Type       string
 	Created_At string
@@ -278,6 +287,36 @@ func (p *ReleasePayload) Format() string {
 	return fmt.Sprintf("released %s", p.Release.Name)
 }
 
+type GollumPayload struct {
+	Pages []Page
+}
+
+func (p *GollumPayload) Format() string {
+	if len(p.Pages) == 0 {
+		return "updated wiki"
+	}
+
+	// Page actions are "created" or "edited"; describe a mix as "updated"
+	action := p.Pages[0].Action
+	for _, page := range p.Pages[1:] {
+		if page.Action != action {
+			action = "updated"
+			break
+		}
+	}
+	if action == "created" {
+		action = color.GreenString("created")
+	}
+
+	if len(p.Pages) == 1 {
+		page := p.Pages[0]
+		pageLink := formatLink(fmt.Sprintf("'%s'", page.Title), page.Html_Url)
+		return fmt.Sprintf("%s wiki page %s", action, pageLink)
+	}
+
+	return fmt.Sprintf("%s %d wiki pages", action, len(p.Pages))
+}
+
 // parseEvent decodes the event's payload into event.parsed, fetching any
 // details that are missing from the payload.
 func parseEvent(f *Fetcher, event *Event) error {
@@ -304,6 +343,8 @@ func parseEvent(f *Fetcher, event *Event) error {
 		formatter = new(PullRequestReviewCommentPayload)
 	case "ReleaseEvent":
 		formatter = new(ReleasePayload)
+	case "GollumEvent":
+		formatter = new(GollumPayload)
 	case "PublicEvent":
 		formatter = staticFormatter("made repository public")
 	case "WatchEvent":
