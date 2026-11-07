@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/cli/go-gh/v2/pkg/api"
@@ -57,7 +58,16 @@ func run() error {
 
 	host, _ := auth.DefaultHost()
 	username, err := cfg.Get([]string{"hosts", host, "user"})
-	if err != nil {
+	var notFound *config.KeyNotFoundError
+	if errors.As(err, &notFound) {
+		// if we've authenticated via a GH_TOKEN, we don't know what user we are,
+		// but we can look it up from the API
+		var user struct{ Login string }
+		if err := client.Get("user", &user); err != nil {
+			return fmt.Errorf("fetching current user: %w", err)
+		}
+		username = user.Login
+	} else if err != nil {
 		return err
 	}
 
