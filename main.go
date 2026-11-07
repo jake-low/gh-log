@@ -12,38 +12,70 @@ import (
 	"golang.org/x/sync/errgroup"
 	"log"
 	"sort"
+	"strings"
 	"time"
 )
 
 const TIME_FORMAT = "15:04"
 const DATE_FORMAT = "Monday, January 2"
 
-func parseDateString(input string) (time.Time, error) {
+// parses an absolute or relative date/time. If the input specifies a date but
+// not a time, the result is the start of that day and isDay is true.
+func parseDateString(input string) (t time.Time, isDay bool, err error) {
 	cfg := &dateparser.Configuration{
 		CurrentTime: time.Now(),
+		// without this, inputs like "yesterday 14:00" have Period == Day
+		ReturnTimeAsPeriod: true,
 	}
 	parsed, err := dateparser.Parse(cfg, input)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, false, err
 	}
 
-	since := parsed.Time
+	t = parsed.Time
 
 	if !parsed.Period.IsTime() {
-		year, month, day := since.Date()
-		since = time.Date(year, month, day, 0, 0, 0, 0, since.Location())
+		year, month, day := t.Date()
+		t = time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+		isDay = true
 	}
 
-	return since, nil
+	return t, isDay, nil
 }
 
 func run() error {
 	sinceStr := flag.String("since", "7 days ago", "Show events since this time (accepts absolute or relative times)")
+	untilStr := flag.String("until", "", "Show events before this time; a date without a time includes that whole day")
+	repos := map[string]bool{}
+	flag.Func("repo", "Only show events in this repo (owner/name); may be repeated", func(s string) error {
+		if !strings.Contains(s, "/") {
+			return errors.New("expected owner/name (use --owner to filter by owner)")
+		}
+		repos[strings.ToLower(s)] = true
+		return nil
+	})
+	owners := map[string]bool{}
+	flag.Func("owner", "Only show events in repos owned by this user or org; may be repeated", func(s string) error {
+		owners[strings.ToLower(s)] = true
+		return nil
+	})
 	flag.Parse()
 
-	since, err := parseDateString(*sinceStr)
+	since, _, err := parseDateString(*sinceStr)
 	if err != nil {
 		return fmt.Errorf("parsing --since date: %w", err)
+	}
+
+	var until time.Time
+	if *untilStr != "" {
+		var isDay bool
+		until, isDay, err = parseDateString(*untilStr)
+		if err != nil {
+			return fmt.Errorf("parsing --until date: %w", err)
+		}
+		if isDay {
+			until = until.AddDate(0, 0, 1)
+		}
 	}
 
 	client, err := api.DefaultRESTClient()
@@ -97,9 +129,15 @@ func run() error {
 				oldest = dt
 			}
 
-			if !dt.Before(since) {
+			if dt.Before(since) {
+				continue
+			}
+			found = true
+
+			name := strings.ToLower(event.Repo.Name)
+			owner, _, _ := strings.Cut(name, "/")
+			if (until.IsZero() || dt.Before(until)) && (len(repos)+len(owners) == 0 || repos[name] || owners[owner]) {
 				events = append(events, event)
-				found = true
 			}
 		}
 
