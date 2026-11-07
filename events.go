@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fatih/color"
+	"strings"
 )
 
 // Helper types
@@ -128,14 +129,15 @@ func (p *PushPayload) Hydrate(f *Fetcher, repo string) error {
 }
 
 func (p *PushPayload) Format() string {
+	ref := strings.TrimPrefix(p.Ref, "refs/heads/")
 	if p.count < 0 {
-		return fmt.Sprintf("pushed to %s", p.Ref)
+		return fmt.Sprintf("pushed to %s", ref)
 	}
 	noun := "commits"
 	if p.count == 1 {
 		noun = "commit"
 	}
-	return fmt.Sprintf("pushed %d %s to %s", p.count, noun, p.Ref)
+	return fmt.Sprintf("pushed %d %s to %s", p.count, noun, ref)
 }
 
 type CreatePayload struct {
