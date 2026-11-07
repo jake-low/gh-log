@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/fatih/color"
 	"strings"
+	"time"
 )
 
 // Helper types
@@ -29,10 +30,11 @@ type PullRequest struct {
 	State            string
 	Merged           bool
 	Merge_Commit_Sha string
-	Base             PullRequestBase
+	Head             PullRequestRef
+	Base             PullRequestRef
 }
 
-type PullRequestBase struct {
+type PullRequestRef struct {
 	Ref string
 }
 
@@ -119,6 +121,17 @@ func formatIssueOrPRLink(title string, number int, url string) string {
 	return formatLink(fmt.Sprintf("\"%s\" (#%d)", title, number), url)
 }
 
+func withComments(n int) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return " with comment"
+	default:
+		return fmt.Sprintf(" with %d comments", n)
+	}
+}
+
 func hydratePull(f *Fetcher, repo string, pr *PullRequest) error {
 	full, err := f.Pull(repo, pr.Number)
 	if err != nil {
@@ -137,6 +150,7 @@ type PushPayload struct {
 	Head   string
 	Before string
 	count  int
+	pushes int // number of pushes collapsed into this one, if more than one
 }
 
 func (p *PushPayload) Hydrate(f *Fetcher, repo string) error {
@@ -147,14 +161,18 @@ func (p *PushPayload) Hydrate(f *Fetcher, repo string) error {
 
 func (p *PushPayload) Format() string {
 	ref := strings.TrimPrefix(p.Ref, "refs/heads/")
+	pushes := ""
+	if p.pushes > 1 {
+		pushes = fmt.Sprintf(" (%d pushes)", p.pushes)
+	}
 	if p.count < 0 {
-		return fmt.Sprintf("pushed to %s", ref)
+		return fmt.Sprintf("pushed to %s%s", ref, pushes)
 	}
 	noun := "commits"
 	if p.count == 1 {
 		noun = "commit"
 	}
-	return fmt.Sprintf("pushed %d %s to %s", p.count, noun, ref)
+	return fmt.Sprintf("pushed %d %s to %s%s", p.count, noun, ref, pushes)
 }
 
 type CreatePayload struct {
@@ -184,8 +202,9 @@ func (p *ForkPayload) Format() string {
 }
 
 type IssuePayload struct {
-	Action string
-	Issue  Issue
+	Action   string
+	Issue    Issue
+	comments int
 }
 
 func (p *IssuePayload) Format() string {
@@ -209,15 +228,17 @@ func (p *IssuePayload) Format() string {
 		status = fmt.Sprintf(" (%s)", strings.ReplaceAll(p.Issue.State_Reason, "_", " "))
 	}
 
-	return fmt.Sprintf("%s issue %s%s",
+	return fmt.Sprintf("%s issue %s%s%s",
 		action,
 		formatIssueOrPRLink(p.Issue.Title, p.Issue.Number, p.Issue.Html_Url),
-		status)
+		status,
+		withComments(p.comments))
 }
 
 type IssueCommentPayload struct {
-	Action string
-	Issue  Issue
+	Action   string
+	Issue    Issue
+	comments int // number of comments collapsed into this one, if more than one
 }
 
 func (p *IssueCommentPayload) Format() string {
@@ -226,14 +247,19 @@ func (p *IssueCommentPayload) Format() string {
 		// this "issue" is actually a PR
 		kind = "PR"
 	}
-	return fmt.Sprintf("commented on %s %s",
-		kind,
-		formatIssueOrPRLink(p.Issue.Title, p.Issue.Number, p.Issue.Html_Url))
+	link := formatIssueOrPRLink(p.Issue.Title, p.Issue.Number, p.Issue.Html_Url)
+	if p.comments > 1 {
+		return fmt.Sprintf("left %d comments on %s %s", p.comments, kind, link)
+	}
+	return fmt.Sprintf("commented on %s %s", kind, link)
 }
 
 type PullRequestPayload struct {
-	Action       string
-	Pull_Request PullRequest
+	Action        string
+	Pull_Request  PullRequest
+	comments      int
+	createdBranch bool // the head branch was created just before opening
+	deletedBranch bool // the head branch was deleted just after merging
 }
 
 func (p *PullRequestPayload) Hydrate(f *Fetcher, repo string) error {
@@ -247,7 +273,12 @@ func (p *PullRequestPayload) isMerge() bool {
 func (p *PullRequestPayload) Format() string {
 	link := formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url)
 	if p.isMerge() {
-		return fmt.Sprintf("%s PR %s to %s", color.MagentaString("merged"), link, p.Pull_Request.Base.Ref)
+		deleted := ""
+		if p.deletedBranch {
+			deleted = fmt.Sprintf(" (deleted branch %s)", p.Pull_Request.Head.Ref)
+		}
+		return fmt.Sprintf("%s PR %s to %s%s%s",
+			color.MagentaString("merged"), link, p.Pull_Request.Base.Ref, deleted, withComments(p.comments))
 	}
 
 	var action string
@@ -260,13 +291,19 @@ func (p *PullRequestPayload) Format() string {
 		action = p.Action
 	}
 
-	return fmt.Sprintf("%s PR %s", action, link)
+	from := ""
+	if p.createdBranch {
+		from = fmt.Sprintf(" from %s", p.Pull_Request.Head.Ref)
+	}
+
+	return fmt.Sprintf("%s PR %s%s%s", action, link, from, withComments(p.comments))
 }
 
 type PullRequestReviewPayload struct {
 	Action       string
 	Pull_Request PullRequest
 	Review       PullRequestReview
+	comments     int
 }
 
 func (p *PullRequestReviewPayload) Hydrate(f *Fetcher, repo string) error {
@@ -278,15 +315,17 @@ func (p *PullRequestReviewPayload) Format() string {
 	if p.Action == "updated" {
 		verb = "updated review on PR"
 	}
-	return fmt.Sprintf("%s %s (%s)",
+	return fmt.Sprintf("%s %s (%s)%s",
 		verb,
 		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url),
-		strings.ReplaceAll(p.Review.State, "_", " "))
+		strings.ReplaceAll(p.Review.State, "_", " "),
+		withComments(p.comments))
 }
 
 type PullRequestReviewCommentPayload struct {
 	Action       string
 	Pull_Request PullRequest
+	comments     int // number of comments collapsed into this one, if more than one
 }
 
 func (p *PullRequestReviewCommentPayload) Hydrate(f *Fetcher, repo string) error {
@@ -294,8 +333,11 @@ func (p *PullRequestReviewCommentPayload) Hydrate(f *Fetcher, repo string) error
 }
 
 func (p *PullRequestReviewCommentPayload) Format() string {
-	return fmt.Sprintf("left review comment on PR %s",
-		formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url))
+	link := formatIssueOrPRLink(p.Pull_Request.Title, p.Pull_Request.Number, p.Pull_Request.Html_Url)
+	if p.comments > 1 {
+		return fmt.Sprintf("left %d review comments on PR %s", p.comments, link)
+	}
+	return fmt.Sprintf("left review comment on PR %s", link)
 }
 
 type ReleasePayload struct {
@@ -471,4 +513,105 @@ func dropRedundant(events []Event) []Event {
 		kept = append(kept, e)
 	}
 	return kept
+}
+
+// collapse merges runs of closely related events into a single event, such as
+// several comments on the same issue, or review comments followed by the
+// review they belong to. Only adjacent events in the same repo on the same
+// (local) day and less than an hour apart are merged. The limit applies between
+// consecutive events, so a long run of frequent events still becomes one line.
+func collapse(events []Event) []Event {
+	var out []Event
+	var last time.Time
+	for _, e := range events {
+		t, _ := time.Parse(time.RFC3339, e.Created_At)
+		t = t.In(time.Local)
+		n := len(out)
+		if n > 0 && t.Sub(last) <= time.Hour && t.Format(time.DateOnly) == last.Format(time.DateOnly) && out[n-1].Repo.Name == e.Repo.Name {
+			if merged, ok := combine(out[n-1], e); ok {
+				out[n-1] = merged
+				last = t
+				continue
+			}
+		}
+		out = append(out, e)
+		last = t
+	}
+	return out
+}
+
+// combine tries to merge event b into the event a that directly precedes it,
+// returning the merged event. The result is a (if b adds detail to it) or b
+// (if a adds detail to b, e.g. comments that preceded closing an issue).
+func combine(a, b Event) (Event, bool) {
+	switch p := a.parsed.(type) {
+	case *IssueCommentPayload:
+		n := max(p.comments, 1)
+		switch q := b.parsed.(type) {
+		case *IssueCommentPayload:
+			if q.Issue.Number == p.Issue.Number {
+				p.comments = n + 1
+				return a, true
+			}
+		case *IssuePayload:
+			if q.Action == "closed" && q.Issue.Number == p.Issue.Number {
+				q.comments = n
+				return b, true
+			}
+		case *PullRequestPayload:
+			if q.Action == "closed" && !q.isMerge() && q.Pull_Request.Number == p.Issue.Number {
+				q.comments = n
+				return b, true
+			}
+		}
+
+	case *PullRequestReviewCommentPayload:
+		n := max(p.comments, 1)
+		switch q := b.parsed.(type) {
+		case *PullRequestReviewCommentPayload:
+			if q.Pull_Request.Number == p.Pull_Request.Number {
+				p.comments = n + 1
+				return a, true
+			}
+		case *PullRequestReviewPayload:
+			if q.Pull_Request.Number == p.Pull_Request.Number {
+				q.comments = n
+				return b, true
+			}
+		}
+
+	case *PushPayload:
+		if q, ok := b.parsed.(*PushPayload); ok && q.Ref == p.Ref {
+			if p.count < 0 || q.count < 0 {
+				p.count = -1
+			} else {
+				p.count += q.count
+			}
+			p.pushes = max(p.pushes, 1) + 1
+			p.Head = q.Head
+			return a, true
+		}
+
+	case *PullRequestPayload:
+		q, ok := b.parsed.(*DeletePayload)
+		if ok && p.isMerge() && !p.deletedBranch && q.Ref_Type == "branch" && q.Ref == p.Pull_Request.Head.Ref {
+			p.deletedBranch = true
+			return a, true
+		}
+
+	case *CreatePayload:
+		switch q := b.parsed.(type) {
+		case *PullRequestPayload:
+			if p.Ref_Type == "branch" && q.Action == "opened" && q.Pull_Request.Head.Ref == p.Ref {
+				q.createdBranch = true
+				return b, true
+			}
+		case *ReleasePayload:
+			if p.Ref_Type == "tag" && q.Release.Tag_Name == p.Ref {
+				return b, true
+			}
+		}
+	}
+
+	return Event{}, false
 }

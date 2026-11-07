@@ -59,6 +59,7 @@ func run() error {
 		owners[strings.ToLower(s)] = true
 		return nil
 	})
+	all := flag.Bool("all", false, "Show every event on its own line, without collapsing or omitting related events")
 	flag.Parse()
 
 	since, _, err := parseDateString(*sinceStr)
@@ -177,7 +178,9 @@ func run() error {
 		return err
 	}
 
-	events = dropRedundant(events)
+	if !*all {
+		events = collapse(dropRedundant(events))
+	}
 
 	var currentDay time.Time
 	var currentRepo string
